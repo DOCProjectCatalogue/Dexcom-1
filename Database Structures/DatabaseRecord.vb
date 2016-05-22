@@ -1,13 +1,13 @@
 ﻿''' <summary>
 ''' Author: Jay Lagorio
-''' Date: May 15, 2016
+''' Date: May 22, 2016
 ''' Summary: Represents the basic information required to constitute a database record from a Dexcom Receiver.
 ''' </summary>
 
 Public MustInherit Class DatabaseRecord
     ' The length of each record on a database page. Must be set in Shared Sub New of the
     ' derivative class.
-    Friend Shared pRecordLength As Integer
+    Friend pRecordLength As Integer
 
     ' Bytes representing the individual record from the DatabasePage at the
     ' offset specified.
@@ -28,23 +28,16 @@ Public MustInherit Class DatabaseRecord
     Private Const DisplayTimeOffset As Integer = 4
 
     ''' <summary>
-    ''' Creates a record from the payload of a DatabasePage.
-    ''' </summary>
-    ''' <param name="DatabasePage">The DatabasePage object read from the device</param>
-    Sub New(ByRef DatabasePage As DatabasePage)
-        Me.New(DatabasePage, 0)
-    End Sub
-
-    ''' <summary>
     ''' Creates a record from the payload of a DatabasePage from the specified offset of the 
     ''' payload. Throws a FormatException when the byte offset and record length are invalid.
     ''' </summary>
     ''' <param name="DatabasePage">The DatabasePage object read from the device</param>
     ''' <param name="Offset">The offset to start reading from</param>
-    Sub New(ByRef DatabasePage As DatabasePage, ByVal Offset As Integer)
+    Sub New(ByRef DatabasePage As DatabasePage, ByVal Offset As Integer, ByVal RecordLength As Integer)
         ' Check that the payload length is longer than one record and that the length is also
         ' greater than the starting offset + the record length.
-        If (DatabasePage.Payload.Length >= RecordLength) And (DatabasePage.Payload.Length > (Offset + RecordLength)) Then
+        pRecordLength = RecordLength
+        If (DatabasePage.Payload.Length >= RecordLength) And (DatabasePage.Payload.Length >= (Offset + RecordLength)) Then
             ' Copy the bytes from the payload for this individual record
             ReDim pRecordBytes(RecordLength - 1)
             Array.ConstrainedCopy(DatabasePage.Payload, Offset, pRecordBytes, 0, pRecordBytes.Length)
@@ -62,7 +55,7 @@ Public MustInherit Class DatabaseRecord
     ''' Returns the length of an individual record of the database type derived from this class.
     ''' </summary>
     ''' <returns>The length of an individual record in bytes</returns>
-    Public Shared ReadOnly Property RecordLength As Integer
+    Public ReadOnly Property RecordLength As Integer
         Get
             Return pRecordLength
         End Get

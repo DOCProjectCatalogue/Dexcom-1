@@ -1,6 +1,6 @@
 ﻿''' <summary>
 ''' Author: Jay Lagorio
-''' Date: May 15, 2016
+''' Date: May 22, 2016
 ''' Summary: Parses a raw database page into an EGVData record.
 ''' </summary>
 
@@ -53,16 +53,9 @@ Public Class EGVDatabaseRecord
     End Enum
 
     ' Data offsets and lengths
-    Private Const EGVDatabaseRecordLength As Integer = 13
+    Public Const EGVDatabaseRecordLength As Integer = 13
     Private Const GlucoseLevelOffset As Integer = 8
     Private Const TrendArrowOffset As Integer = 10
-
-    ''' <summary>
-    ''' Sets the length in bytes of each of this type of record.
-    ''' </summary>
-    Shared Sub New()
-        pRecordLength = EGVDatabaseRecordLength
-    End Sub
 
     ''' <summary>
     ''' Creates a record from the payload of a DatabasePage.
@@ -70,6 +63,7 @@ Public Class EGVDatabaseRecord
     ''' <param name="DatabasePage">The DatabasePage object read from the device</param>
     Sub New(ByRef DatabasePage As DatabasePage)
         Me.New(DatabasePage, 0)
+        pRecordLength = EGVDatabaseRecordLength
     End Sub
 
     ''' <summary>
@@ -79,7 +73,7 @@ Public Class EGVDatabaseRecord
     ''' <param name="DatabasePage">The DatabasePage object read from the device</param>
     ''' <param name="Offset">The offset to start reading from</param>
     Sub New(ByRef DatabasePage As DatabasePage, ByVal Offset As Integer)
-        MyBase.New(DatabasePage, Offset)
+        MyBase.New(DatabasePage, Offset, EGVDatabaseRecordLength)
         pRecordType = DatabasePage.RecordType.EGVData
         pGlucoseLevel = BitConverter.ToUInt16(pRecordBytes, GlucoseLevelOffset)
         pTrendArrow = pRecordBytes(TrendArrowOffset)

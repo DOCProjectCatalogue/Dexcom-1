@@ -1,6 +1,6 @@
 ﻿''' <summary>
 ''' Author: Jay Lagorio
-''' Date: May 15, 2016
+''' Date: May 22, 2016
 ''' Summary: Describes and interface used to connect to a Dexcom Receiver. The interface can be wired or
 ''' wireless but must allow the Receiver class to detect, connect, and exchange data with the device in a
 ''' way that is connection agnostic.
@@ -10,7 +10,7 @@ Public MustInherit Class DeviceInterface
 
     ' The name of the interface the class uses to connect to the device. This
     ' name must be set in Shared Sub New by the derivative class.
-    Friend Shared pInterfaceName As String
+    Friend pInterfaceName As String
 
     ' The friendly name of the device
     Friend pDisplayName As String
@@ -31,7 +31,7 @@ Public MustInherit Class DeviceInterface
     ''' Returns the name of the interface type used to connect to the device.
     ''' </summary>
     ''' <returns>A string with the interface name connecting to the device</returns>
-    Public Shared ReadOnly Property InterfaceName As String
+    Public ReadOnly Property InterfaceName As String
         Get
             Return pInterfaceName
         End Get

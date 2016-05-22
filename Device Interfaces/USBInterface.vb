@@ -2,7 +2,7 @@
 
 ''' <summary>
 ''' Author: Jay Lagorio
-''' Date: May 15, 2016
+''' Date: May 22, 2016
 ''' Summary: Detects, connects, and exchanges data with a Dexcom Receiver using Serial-over-USB.
 ''' </summary>
 
@@ -19,7 +19,7 @@ Public Class USBInterface
     ''' <summary>
     ''' Sets the interface name for later use
     ''' </summary>
-    Shared Sub New()
+    Sub New()
         pInterfaceName = "USB"
     End Sub
 
@@ -179,8 +179,15 @@ Public Class USBInterface
     ''' </summary>
     ''' <returns>True always.</returns>
     Friend Overrides Async Function Disconnect() As Task(Of Boolean)
-        Await Task.Yield
-        Call pDevice.Dispose()
+        Try
+            Await Task.Yield
+
+            ' For some reason this call occasionally crashes the app
+            ' with a native exception that doesn't trigger the exception handler.
+            Call pDevice.Dispose()
+        Catch ex As Exception
+            Return False
+        End Try
         Return True
     End Function
 End Class

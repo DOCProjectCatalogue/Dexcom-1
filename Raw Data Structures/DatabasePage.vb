@@ -20,7 +20,7 @@ Public Class DatabasePage
         EGVData = 4                 ' Trend and glucose level data
         CalSetData = 5
         DeviationData = 6
-        InsertionTime = 7           ' Insertion event data
+        InsertionData = 7           ' Insertion event data
         ReceiverLogData = 8
         ReceiverErrorData = 9
         MeterData = 10

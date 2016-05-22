@@ -124,6 +124,9 @@
   <ItemGroup>
     <Compile Include="Database Structures\DatabaseRecord.vb" />
     <Compile Include="Database Structures\EGVDatabaseRecord.vb" />
+    <Compile Include="Database Structures\InsertionDatabaseRecord.vb" />
+    <Compile Include="Database Structures\MeterDatabaseRecord.vb" />
+    <Compile Include="Database Structures\SensorDatabaseRecord.vb" />
     <Compile Include="Raw Data Structures\CRC.vb" />
     <Compile Include="Raw Data Structures\DatabasePage.vb" />
     <Compile Include="Raw Data Structures\DatabasePartitions.vb" />

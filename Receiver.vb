@@ -3,7 +3,7 @@ Imports System.Text.UTF8Encoding
 
 ''' <summary>
 ''' Author: Jay Lagorio
-''' Date: May 15, 2016
+''' Date: May 22, 2016
 ''' Summary: Implmements the ability to connect to and query a Dexcom Receiver.
 ''' </summary>
 
@@ -102,7 +102,11 @@ Public Class Receiver
     ''' </summary>
     ''' <returns>True if the device is disconnected, False otherwise</returns>
     Public Async Function Disconnect() As Task(Of Boolean)
-        Return Await pDexcomInterface.Disconnect()
+        Try
+            Return Await pDexcomInterface.Disconnect()
+        Catch ex As Exception
+            Return False
+        End Try
     End Function
 
     ''' <summary>
@@ -152,7 +156,7 @@ Public Class Receiver
                     ' Get the first page of the ManufacturingData database. It has XML content
                     ' on it that we need.
                     DatabasePage = Await GetDatabasePage("ManufacturingData", 0)
-                    ManufacturingDataText = DatabasePage.GetPageXMLContent()                '' TODO: Figure out what's wrong here
+                    ManufacturingDataText = DatabasePage.GetPageXMLContent()
 
                     ' Turn the bytes received from the DatabasePage into a stream and deserialize
                     ' it to get properties.
@@ -425,15 +429,22 @@ Public Class Receiver
         Dim Results As New Collection(Of DatabaseRecord)
 
         ' Get the range of pages that make up this database and scan through backwards
-        Dim PageRange As DatabasePageRange = Await GetDatabasePageRange(DatabaseName)
-        If Not (PageRange.RangeStart = 0 And PageRange.RangeEnd = 0) Then
+        Dim PageRange As DatabasePageRange = Nothing
+        Try
+            PageRange = Await GetDatabasePageRange(DatabaseName)
+        Catch Ex As FormatException
+            PageRange = Nothing
+        End Try
+
+        ' Check to make sure the page range was successfully retrieved
+        If Not CObj(PageRange) Is Nothing Then
             For i = PageRange.RangeEnd To PageRange.RangeStart Step -1
                 ' Get the data associated with this database page and scan through it backwards
                 Dim RawPage As DatabasePage = Nothing
                 Try
                     RawPage = Await GetDatabasePage(DatabaseName, i)
                 Catch ex As OverflowException
-                    Stop
+                    RawPage = Nothing
                 End Try
 
                 If Not RawPage Is Nothing Then
@@ -441,16 +452,19 @@ Public Class Receiver
                         Dim NewRecord As DatabaseRecord = Nothing
 
                         ' Build the structure from a class inheriting from DatabaseRecord
-                        Try
-                            Select Case RawPage.DataRecordType
-                                Case DatabasePage.RecordType.EGVData
-                                    NewRecord = New EGVDatabaseRecord(RawPage, j * EGVDatabaseRecord.RecordLength)
-                                Case Else
-                                    Throw New NotImplementedException
-                            End Select
-                        Catch Ex As OverflowException
-                            Stop
-                        End Try
+                        Select Case RawPage.DataRecordType
+                            Case DatabasePage.RecordType.EGVData
+                                NewRecord = New EGVDatabaseRecord(RawPage, j * EGVDatabaseRecord.EGVDatabaseRecordLength)
+                            Case DatabasePage.RecordType.SensorData
+                                NewRecord = New SensorDatabaseRecord(RawPage, j * SensorDatabaseRecord.SensorDataRecordLength)
+                            Case DatabasePage.RecordType.MeterData
+                                NewRecord = New MeterDatabaseRecord(RawPage, j * MeterDatabaseRecord.MeterDataRecordLength)
+                            Case DatabasePage.RecordType.InsertionData
+                                NewRecord = New InsertionDatabaseRecord(RawPage, j * InsertionDatabaseRecord.InsertionDatabaseRecordLength)
+                            Case Else
+                                ' This exception will need to be handled by the calling function
+                                Throw New NotImplementedException
+                        End Select
 
                         ' Once we cross an hour behind the point at which the user is interested in
                         ' collecting data we stop, otherwise we add the record to the Collection.
