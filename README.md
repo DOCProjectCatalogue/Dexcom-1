@@ -1,4 +1,4 @@
-This library is used to pull data from Dexcom G4 Receivers on the Universal Windows Platform. Dexcom G5 Receivers are unsupported only because I haven't had an exemplar device to experiment with. It can be compiled for inclusion in any UWP app, including apps written in C#. Once the device is connected to the PC via USB the following code snippet will open the device and query data:
+This library is used to pull data from Dexcom G4 Receivers on the Universal Windows Platform. Dexcom G5 Receivers are unsupported only because I don't have an exemplar device to experiment with. The library can be compiled for inclusion in any UWP app for any platform, including apps written in C#. Once the device is connected to the PC via USB the following code snippet will open the device and query data:
 
 ```
 Private Sub ConnectToDevice()
@@ -26,4 +26,15 @@ Private Sub ConnectToDevice()
 
     Return
 End Sub
+```
+
+Apps that use the library will need to include the `bluetooth` and/or `serialcommunication` capabilities to successfully connect to the device using either interface:
+
+```
+<DeviceCapability Name="bluetooth" />
+<DeviceCapability Name="serialcommunication">
+  <Device Id="any">
+    <Function Type="name:serialPort" />
+  </Device>
+</DeviceCapability>
 ```

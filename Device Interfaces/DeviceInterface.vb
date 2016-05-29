@@ -1,6 +1,6 @@
 ﻿''' <summary>
 ''' Author: Jay Lagorio
-''' Date: May 22, 2016
+''' Date: May 29, 2016
 ''' Summary: Describes and interface used to connect to a Dexcom Receiver. The interface can be wired or
 ''' wireless but must allow the Receiver class to detect, connect, and exchange data with the device in a
 ''' way that is connection agnostic.
@@ -56,6 +56,12 @@ Public MustInherit Class DeviceInterface
     ''' <param name="AvailableConnection">An AvailableConnection structure representing the device to connect to</param>
     ''' <returns>True if the device is connected, False otherwise</returns>
     Friend MustOverride Async Function Connect(ByVal AvailableConnection As DeviceConnection) As Task(Of Boolean)
+
+    ''' <summary>
+    ''' Attempts to connect to a device using previously established connection data.
+    ''' </summary>
+    ''' <returns>True if the connection is reestablished, False otherwise</returns>
+    Friend MustOverride Async Function Connect() As Task(Of Boolean)
 
     ''' <summary>
     ''' Disconnects the underlying device interface.

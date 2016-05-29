@@ -2,7 +2,7 @@
 
 ''' <summary>
 ''' Author: Jay Lagorio
-''' Date: May 22, 2016
+''' Date: May 29, 2016
 ''' Summary: Detects, connects, and exchanges data with a Dexcom Receiver using Serial-over-USB.
 ''' </summary>
 
@@ -103,9 +103,7 @@ Public Class USBInterface
     ''' <returns>True if the device is connected, False otherwise</returns>
     Friend Overrides Async Function Connect(ByVal AvailableConnection As DeviceConnection) As Task(Of Boolean)
         ' If the calling function passes a connection with the wrong interface fail the call
-        If AvailableConnection.InterfaceName <> pInterfaceName Then
-            Return False
-        End If
+        If AvailableConnection.InterfaceName <> pInterfaceName Then Return False
 
         Try
             ' Attempt to connect to the device and set some properties
@@ -120,6 +118,26 @@ Public Class USBInterface
         If Not pDevice Is Nothing Then
             pDevice.ReadTimeout = TimeSpan.FromMilliseconds(ReceiveTimeoutMS)
             Return True
+        End If
+
+        Return False
+    End Function
+
+    ''' <summary>
+    ''' Allows the calling application to reestablish an existing connection, if possible. If this fails another
+    ''' call using a DeviceConnection structure must be attempted.
+    ''' </summary>
+    ''' <returns>True if the connection was reestablished, False otherwise.</returns>
+    Friend Overrides Async Function Connect() As Task(Of Boolean)
+        ' Check to see whether pDeviceID is blank before trying to reconnect to the device
+        If pDeviceID <> "" Then
+            ' Recreate the previous DeviceConnection
+            Dim Connection As New DeviceConnection
+            Connection.DeviceId = pDeviceID
+            Connection.DisplayName = pDisplayName
+            Connection.InterfaceName = pInterfaceName
+
+            Return Await Connect(Connection)
         End If
 
         Return False

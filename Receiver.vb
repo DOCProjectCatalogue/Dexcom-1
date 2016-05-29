@@ -3,7 +3,7 @@ Imports System.Text.UTF8Encoding
 
 ''' <summary>
 ''' Author: Jay Lagorio
-''' Date: May 22, 2016
+''' Date: May 29, 2016
 ''' Summary: Implmements the ability to connect to and query a Dexcom Receiver.
 ''' </summary>
 
@@ -11,9 +11,6 @@ Public Class Receiver
 
     ' The interface used to communicate with the Dexcom receiver.
     Private pDexcomInterface As DeviceInterface
-
-    ' The Transmitter ID of the transmitter currently paired with the Receiver
-    Private pTransmitterID As String
 
     ' The Serial Number of the Dexcom Receiver - requires prior knowledge if using
     ' Bluetooth but can be retrieved without authentication over USB.
@@ -44,7 +41,7 @@ Public Class Receiver
 
     ''' <summary>
     ''' The glucose measurement unit on the device
-    ''' </summary>
+    ''' </summary> w
     Public Enum GlucoseUnits
         Unknown = 0
         mgdl = 1
@@ -114,12 +111,18 @@ Public Class Receiver
     ''' </summary>
     ''' <param name="Connection">Returned by a DeviceInterface which describes the connection to the device</param>
     ''' <returns>True if the device has been successfully connected and its properties loaded, False otherwise</returns>
-    Public Async Function ConnectToReceiver(ByVal Connection As DeviceInterface.DeviceConnection) As Task(Of Boolean)
+    Public Async Function Connect(ByVal Connection As DeviceInterface.DeviceConnection) As Task(Of Boolean)
         ' Attempt to connect to the device
-        If Await pDexcomInterface.Connect(Connection) Then
-            ' If the connection is good query some data to have handy. The availability of this
-            ' data will depend on the connection type and pair status with the device.
-            Return Await GetManufacturingData()
+        Return Await pDexcomInterface.Connect(Connection)
+    End Function
+
+    ''' <summary>
+    ''' Attempts to reconnect to a device if a previous connection existed.
+    ''' </summary>
+    ''' <returns>True if the connection was reestablished, False otherwise</returns>
+    Public Async Function Connect() As Task(Of Boolean)
+        If Not pDexcomInterface Is Nothing Then
+            Return Await pDexcomInterface.Connect()
         End If
 
         Return False
@@ -131,52 +134,48 @@ Public Class Receiver
     ''' </summary>
     ''' <returns></returns>
     Private Async Function GetManufacturingData() As Task(Of Boolean)
-        ' Create a new Packet with the ReadTransmitterID command
-        Dim RequestPacket As New Packet(Packet.Commands.ReadTransmitterID)
+        Dim DatabasePage As DatabasePage
+        Dim ManufacturingDataText As String
+        Dim ManufacturingStream As MemoryStream
+        Dim ManufacturingDataSerializer As XmlSerializer
+        Dim ManufacturingData As ManufacturingParameters = Nothing
 
-        ' Send the Packet to the device to query for the Transmitter ID
-        If Await pDexcomInterface.SendPacketBytes(RequestPacket.GetPacketBytes()) Then
+        Try
+            ' Get the first page of the ManufacturingData database. It has XML content
+            ' on it that we need.
+            DatabasePage = Await GetDatabasePage("ManufacturingData", 0)
+            ManufacturingDataText = DatabasePage.GetPageXMLContent()
+        Catch ex As Exception
+            ' Looks like something went wrong - abort the connection process
+            Return False
+        End Try
 
-            ' If the Packet was transmitted successfully attempt to read bytes back
-            Dim ResponsePacketBytes() As Byte = Await pDexcomInterface.ReceivePacketBytes()
+        Try
+            ' Turn the bytes received from the DatabasePage into a stream and deserialize
+            ' it to get properties.
+            ManufacturingStream = New MemoryStream(UTF8.GetBytes(ManufacturingDataText))
+            ManufacturingDataSerializer = New XmlSerializer(GetType(ManufacturingParameters))
+            ManufacturingData = ManufacturingDataSerializer.Deserialize(ManufacturingStream)
+        Catch Ex As Exception
+            ' Sometimes, over Bluetooth, the manufacturing data comes in out of order and can't be 
+            ' put together again properly, resulting in a bad XML tag. We'll ignore it so the connection
+            ' process can continue but the important part is that the serial number must have already
+            ' been passed to the device for authentication. This problem doesn't crop up when connected via USB.
+            ManufacturingData = Nothing
+        End Try
 
-            ' Check to see if bytes were returned from the device
-            If Not ResponsePacketBytes Is Nothing Then
-                ' Turns the received bytes into a Packet and read the Transmitter ID from
-                ' the Packet's payload. It's a UTF8 formatted string.
-                Dim ResponsePacket As New Packet(ResponsePacketBytes)
-                pTransmitterID = UTF8.GetString(ResponsePacket.PayloadData())
-
-                Dim DatabasePage As DatabasePage
-                Dim ManufacturingDataText As String
-                Dim ManufacturingStream As MemoryStream
-                Dim ManufacturingDataSerializer As XmlSerializer
-                Dim ManufacturingData As ManufacturingParameters = Nothing
-                Try
-                    ' Get the first page of the ManufacturingData database. It has XML content
-                    ' on it that we need.
-                    DatabasePage = Await GetDatabasePage("ManufacturingData", 0)
-                    ManufacturingDataText = DatabasePage.GetPageXMLContent()
-
-                    ' Turn the bytes received from the DatabasePage into a stream and deserialize
-                    ' it to get properties.
-                    ManufacturingStream = New MemoryStream(UTF8.GetBytes(ManufacturingDataText))
-                    ManufacturingDataSerializer = New XmlSerializer(GetType(ManufacturingParameters))
-                    ManufacturingData = ManufacturingDataSerializer.Deserialize(ManufacturingStream)
-                Catch ex As Exception
-                    ' Looks like something went wrong - abort the connection process
-                    Return False
-                End Try
-
-                ' Record the device attributes from the structure
-                pSerialNumber = ManufacturingData.SerialNumber
-                pHardwarePartNumber = ManufacturingData.HardwarePartNumber
-                pHardwareRevision = ManufacturingData.HardwareRevision
-                pDateTimeCreated = DateTime.Parse(ManufacturingData.DateTimeCreated)
-                pHardwareID = ManufacturingData.HardwareId
-
-                Return True
-            End If
+        ' Record the device attributes from the structure if data was retrieved
+        If Not ManufacturingData Is Nothing Then
+            pSerialNumber = ManufacturingData.SerialNumber
+            pHardwarePartNumber = ManufacturingData.HardwarePartNumber
+            pHardwareRevision = ManufacturingData.HardwareRevision
+            pDateTimeCreated = DateTime.Parse(ManufacturingData.DateTimeCreated)
+            pHardwareID = ManufacturingData.HardwareId
+        Else
+            pSerialNumber = ""
+            pHardwareID = ""
+            pHardwarePartNumber = ""
+            pHardwareRevision = ""
         End If
 
         Return False
@@ -212,7 +211,14 @@ Public Class Receiver
     Public Async Function Ping() As Task(Of Boolean)
         Dim RequestPacket As New Packet(Packet.Commands.Ping)
         If Await pDexcomInterface.SendPacketBytes(RequestPacket.GetPacketBytes()) Then
-            Dim ResponsePacket As New Packet(Await pDexcomInterface.ReceivePacketBytes())
+            Dim ResponsePacket As Packet
+            Try
+                ResponsePacket = New Packet(Await pDexcomInterface.ReceivePacketBytes())
+            Catch ex As Exception
+                ' If the packet failed to build or wasn't received we fail out
+                Return False
+            End Try
+
             ' Check to make sure we got an ACK response code, otherwise something could
             ' be wrong with the CRC
             If ResponsePacket.CommandId = Packet.ResponseCodes.Ack Then
@@ -221,6 +227,20 @@ Public Class Receiver
         End If
 
         Return False
+    End Function
+
+    ''' <summary>
+    ''' Returns a String with the currently paired Transmitter ID.
+    ''' </summary>
+    ''' <returns>A string containing the ID of the currently paired Transmitter</returns>
+    Public Async Function GetTransmitterID() As Task(Of String)
+        Dim RequestPacket As New Packet(Packet.Commands.ReadTransmitterID)
+        If Await pDexcomInterface.SendPacketBytes(RequestPacket.GetPacketBytes()) Then
+            Dim ResponsePacket As New Packet(Await pDexcomInterface.ReceivePacketBytes())
+            Return UTF8.GetString(ResponsePacket.PayloadData())
+        End If
+
+        Return ""
     End Function
 
     ''' <summary>
@@ -335,7 +355,7 @@ Public Class Receiver
     End Function
 
     ''' <summary>
-    ''' Returns the unit of measurement for glucose
+    ''' Returns the unit of measurement for glucose.
     ''' </summary>
     ''' <returns>A value from the GlucoseUnits Enum representing the unit of measurement set on the device</returns>
     Public Async Function GetGlucoseUnit() As Task(Of GlucoseUnits)
@@ -383,7 +403,7 @@ Public Class Receiver
     End Function
 
     ''' <summary>
-    ''' Returns information about the device firmware
+    ''' Returns information about the device firmware.
     ''' </summary>
     ''' <returns>A String with information about the device firmware or an empty String if an error occurrs</returns>
     Public Async Function GetFirmwareHeader() As Task(Of String)
@@ -466,11 +486,11 @@ Public Class Receiver
                                 Throw New NotImplementedException
                         End Select
 
-                        ' Once we cross an hour behind the point at which the user is interested in
+                        ' Once we cross 15 minutes behind the point at which the user is interested in
                         ' collecting data we stop, otherwise we add the record to the Collection.
                         If NewRecord.DisplayTime >= StartingTime Then
                             Call Results.Add(NewRecord)
-                        ElseIf NewRecord.DisplayTime < StartingTime.Subtract(New TimeSpan(1, 0, 0)) Then
+                        ElseIf NewRecord.DisplayTime < StartingTime.Subtract(New TimeSpan(0, 15, 0)) Then
                             Return Results
                         End If
                     Next
@@ -562,17 +582,20 @@ Public Class Receiver
     ''' <returns>A String containing the device Serial Number</returns>
     Public ReadOnly Property SerialNumber As String
         Get
-            Return pSerialNumber
-        End Get
-    End Property
+            ' If there's a serial number as part of the underlying interface then return
+            ' that. Otherwise attempt to get what was retrieved from the manufacturing data.
+            If pDexcomInterface.GetType Is GetType(BLEInterface) Then
+                Dim UnderlyingInterface As BLEInterface = pDexcomInterface
+                If UnderlyingInterface.SerialNumber <> "" Then
+                    Return UnderlyingInterface.SerialNumber
+                End If
+            End If
 
-    ''' <summary>
-    ''' Returns a String with the currently paired Transmitter ID.
-    ''' </summary>
-    ''' <returns>A string containing the ID of the currently paired Transmitter</returns>
-    Public ReadOnly Property TransmitterID As String
-        Get
-            Return pTransmitterID
+            If pSerialNumber = "" Then
+                Dim GetDeviceData As Task = Task.Run(AddressOf GetManufacturingData)
+                Call GetDeviceData.Wait()
+            End If
+            Return pSerialNumber
         End Get
     End Property
 
@@ -582,6 +605,12 @@ Public Class Receiver
     ''' <returns>A String containing the Hardware Part Number</returns>
     Public ReadOnly Property HardwarePartNumber As String
         Get
+            ' If the attribute hasn't been retrieved then attempt to retrieve it.
+            If pHardwarePartNumber = "" Then
+                Dim GetDeviceData As Task = Task.Run(AddressOf GetManufacturingData)
+                Call GetDeviceData.Wait()
+            End If
+
             Return pHardwarePartNumber
         End Get
     End Property
@@ -592,6 +621,12 @@ Public Class Receiver
     ''' <returns>A string containing the Hardware Revision number</returns>
     Public ReadOnly Property HardwareRevision As String
         Get
+            ' If the attribute hasn't been retrieved then attempt to retrieve it.
+            If pHardwareRevision = "" Then
+                Dim GetDeviceData As Task = Task.Run(AddressOf GetManufacturingData)
+                Call GetDeviceData.Wait()
+            End If
+
             Return pHardwareRevision
         End Get
     End Property
@@ -602,6 +637,12 @@ Public Class Receiver
     ''' <returns>A DateTime indicating when the device was created</returns>
     Public ReadOnly Property DateTimeCreated As DateTime
         Get
+            ' If the attribute hasn't been retrieved then attempt to retrieve it.
+            If pDateTimeCreated = "" Then
+                Dim GetDeviceData As Task = Task.Run(AddressOf GetManufacturingData)
+                Call GetDeviceData.Wait()
+            End If
+
             Return pDateTimeCreated
         End Get
     End Property
@@ -612,6 +653,12 @@ Public Class Receiver
     ''' <returns>A string containing a GUID representing the device unique identifier</returns>
     Public ReadOnly Property HardwareID As String
         Get
+            ' If the attribute hasn't been retrieved then attempt to retrieve it.
+            If pHardwareID = "" Then
+                Dim GetDeviceData As Task = Task.Run(AddressOf GetManufacturingData)
+                Call GetDeviceData.Wait()
+            End If
+
             Return pHardwareID
         End Get
     End Property
