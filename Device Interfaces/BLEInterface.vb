@@ -4,7 +4,7 @@ Imports System.Text.UTF8Encoding
 
 ''' <summary>
 ''' Author: Jay Lagorio
-''' Date: May 29, 2016
+''' Date: June 5, 2016
 ''' Summary: Detects, connects, and exchanges data with a Dexcom Receiver using Bluetooth LE.
 ''' </summary>
 
@@ -342,7 +342,7 @@ Public Class BLEInterface
     ''' </summary>
     ''' <returns>An array of bytes retrieved from the device, Nothing otherwise</returns>
     Friend Overrides Async Function ReceivePacketBytes() As Task(Of Byte())
-        Dim DataPayloads As New Collection(Of Byte())
+        'Dim DataPayloads As New Collection(Of Byte())
 
         ' Set a five second timeout for bytes coming in
         Dim Timeout As New TimeSpan(0, 0, ReceiveTimeout)
@@ -353,8 +353,10 @@ Public Class BLEInterface
         ' Bytes are received in 20 byte increments from another thread. Go
         ' through the timing loop at least once to get the initial bytes
         ' and continue through as the bytes pour in during the time less
-        ' than the timeout.
+        ' than the timeout. When the two CRC16 bytes at the end of the packet
+        ' are whats calculated over the packet then the receive event is done.
         Dim ReceivedBytes As Boolean = False
+        Dim FinalDataPayload(0) As Byte
         Do
             ' Wait for bytes to come in or for the timeout to expire
             ReceivedBytes = False
@@ -367,24 +369,20 @@ Public Class BLEInterface
             ' If a payload came in add it to the local collection and remove it
             ' from the collection of data waiting to be processed.
             While pReceivedBytes.Count > 0
-                Await Task.Yield()
+                ' Extend the length of the buffer and copy new packet payload data
+                ReDim Preserve FinalDataPayload(TotalByteCount + pReceivedBytes(0).Count - 1)
+                Call Array.Copy(pReceivedBytes(0), 0, FinalDataPayload, TotalByteCount, pReceivedBytes(0).Count)
+
+                ' Increase the total size of the packet and remove the bytes just received
                 TotalByteCount += pReceivedBytes(0).Count
-                Call DataPayloads.Add(pReceivedBytes(0))
                 Call pReceivedBytes.RemoveAt(0)
 
                 ' Indicate that bytes came in during this loop so
                 ' run the loop again looking for more data.
                 ReceivedBytes = True
+                Await Task.Yield()
             End While
-        Loop While ReceivedBytes
-
-        ' Copy all of the byte payloads into one contiguous array
-        Dim FinalDataPayload(TotalByteCount - 1) As Byte
-        Dim LastIndex As Integer = 0
-        For i = 0 To DataPayloads.Count - 1
-            Call Array.Copy(DataPayloads(i), 0, FinalDataPayload, LastIndex, DataPayloads(i).Count)
-            LastIndex += DataPayloads(i).Count
-        Next
+        Loop While ReceivedBytes And (Not Packet.IsPacketComplete(FinalDataPayload))
 
         ' Take whatever is in the member variable set (or not) by OnShareMessageResponse
         ' and return it to the calling function, clearing the received data. If the timeout
