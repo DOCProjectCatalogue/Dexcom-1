@@ -127,11 +127,13 @@
     <Compile Include="Database Structures\InsertionDatabaseRecord.vb" />
     <Compile Include="Database Structures\MeterDatabaseRecord.vb" />
     <Compile Include="Database Structures\SensorDatabaseRecord.vb" />
+    <Compile Include="Database Structures\UserEventDatabaseRecord.vb" />
     <Compile Include="Device Interfaces\BLEInterface.vb" />
     <Compile Include="Raw Data Structures\CRC.vb" />
     <Compile Include="Raw Data Structures\DatabasePage.vb" />
     <Compile Include="Raw Data Structures\DatabasePartitions.vb" />
     <Compile Include="Device Interfaces\DeviceInterface.vb" />
+    <Compile Include="Raw Data Structures\FirmwareHeader.vb" />
     <Compile Include="Raw Data Structures\ManufacturingParameters.vb" />
     <Compile Include="Raw Data Structures\Packet.vb" />
     <Compile Include="Receiver.vb" />

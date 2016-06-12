@@ -3,7 +3,7 @@ Imports System.Text.UTF8Encoding
 
 ''' <summary>
 ''' Author: Jay Lagorio
-''' Date: May 29, 2016
+''' Date: June 12, 2016
 ''' Summary: Implmements the ability to connect to and query a Dexcom Receiver.
 ''' </summary>
 
@@ -27,6 +27,45 @@ Public Class Receiver
 
     ' A GUID uniquely identifying the Receiver
     Private pHardwareID As String
+
+    ' The version of the database schema the device uses.
+    Private pSchemaVersion As String
+
+    ' The version of the API exposed by the device.
+    Private pApiVersion As String
+
+    ' The API version of the test API.
+    Private pTestApiVersion As String
+
+    ' A short string identifying the receiver product type
+    Private pProductId As String
+
+    ' A user-friendly string describing the receiver product type
+    Private pProductName As String
+
+    ' The number of the software published on the device.
+    Private pSoftwareNumber As String
+
+    ' The overall version of Firmware loaded onto the device.
+    Private pFirmwareVersion As String
+
+    ' The version of the Port software in this firmware version.
+    Private pPortVersion As String
+
+    ' The version of the RF software in this firmware version.
+    Private pRFVersion As String
+
+    ' The revision number of the DexBoot software in this firmware version.
+    Private pDexBootVersion As String
+
+    ' The version of the BLE software in this firmware version.
+    Private pBLEVersion As String
+
+    ' The version of the BLE Soft Device software in this firmware version.
+    Private pBLESoftDeviceVersion As String
+
+    ' The type of receiver device (G4 or G5)
+    Private pDeviceType As DeviceTypes
 
     ''' <summary>
     ''' Indicates the present state of the battery
@@ -75,6 +114,15 @@ Public Class Receiver
         Dim RangeStart As Integer
         Dim RangeEnd As Integer
     End Structure
+
+    ''' <summary>
+    ''' Identifies whether the device is a G4 or G5 receiver.
+    ''' </summary>
+    Public Enum DeviceTypes
+        Unknown = 0
+        G4Receiver = 1
+        G5Receiver = 2
+    End Enum
 
     ''' <summary>
     ''' Creates a device using the specified Device Interface
@@ -130,9 +178,9 @@ Public Class Receiver
 
     ''' <summary>
     ''' Fetches device attributes such as the manufacturer, serial number, hardware IDs, and
-    ''' other data elements from the device at first connection
+    ''' other data elements from the device at first connection.
     ''' </summary>
-    ''' <returns></returns>
+    ''' <returns>True if getting the data was successful, False otherwise</returns>
     Private Async Function GetManufacturingData() As Task(Of Boolean)
         Dim DatabasePage As DatabasePage
         Dim ManufacturingDataText As String
@@ -143,7 +191,7 @@ Public Class Receiver
         Try
             ' Get the first page of the ManufacturingData database. It has XML content
             ' on it that we need.
-            DatabasePage = Await GetDatabasePage("ManufacturingData", 0)
+            DatabasePage = Await GetDatabasePage(DatabasePartitions.ManufacturingData, 0)
             ManufacturingDataText = DatabasePage.GetPageXMLContent()
         Catch ex As Exception
             ' Looks like something went wrong - abort the connection process
@@ -171,11 +219,77 @@ Public Class Receiver
             pHardwareRevision = ManufacturingData.HardwareRevision
             pDateTimeCreated = DateTime.Parse(ManufacturingData.DateTimeCreated)
             pHardwareID = ManufacturingData.HardwareId
+            Return True
         Else
             pSerialNumber = ""
             pHardwareID = ""
             pHardwarePartNumber = ""
             pHardwareRevision = ""
+        End If
+
+        Return False
+    End Function
+
+    ''' <summary>
+    ''' Fetches device attributes such as the software version of device components </summary>
+    ''' <returns>True if the request succeeds, False otherwise</returns>
+    Private Async Function GetFirmwareData() As Task(Of Boolean)
+        Dim DatabasePage As DatabasePage = Nothing
+        Dim FirmwareHeaderText As String = ""
+        Dim FirmwareStream As MemoryStream = Nothing
+        Dim FirmwareHeaderSerializer As XmlSerializer = Nothing
+        Dim FirmwareHeader As FirmwareHeader = Nothing
+
+        Dim RequestPacket As New Packet(Packet.Commands.ReadFirmwareHeader)
+        If Await pDexcomInterface.SendPacketBytes(RequestPacket.GetPacketBytes()) Then
+            Dim ResponsePacket As New Packet(Await pDexcomInterface.ReceivePacketBytes())
+            FirmwareHeaderText = UTF8.GetString(ResponsePacket.PayloadData())
+        End If
+
+        If FirmwareHeaderText <> "" Then
+            Try
+                ' Turn the bytes received from the DatabasePage into a stream and deserialize
+                ' it to get properties.
+                FirmwareStream = New MemoryStream(UTF8.GetBytes(FirmwareHeaderText))
+                FirmwareHeaderSerializer = New XmlSerializer(GetType(FirmwareHeader))
+                FirmwareHeader = FirmwareHeaderSerializer.Deserialize(FirmwareStream)
+            Catch Ex As Exception
+                ' Sometimes, over Bluetooth, the manufacturing data comes in out of order and can't be 
+                ' put together again properly, resulting in a bad XML tag. We'll ignore it so the connection
+                ' process can continue but the important part is that the serial number must have already
+                ' been passed to the device for authentication. This problem doesn't crop up when connected via USB.
+                FirmwareHeader = Nothing
+            End Try
+        End If
+
+        ' Record the device attributes from the structure if data was retrieved
+        If Not FirmwareHeader Is Nothing Then
+            pSchemaVersion = FirmwareHeader.SchemaVersion
+            pApiVersion = FirmwareHeader.ApiVersion
+            pTestApiVersion = FirmwareHeader.TestApiVersion
+            pProductId = FirmwareHeader.ProductId
+            pProductName = FirmwareHeader.ProductName
+            pSoftwareNumber = FirmwareHeader.SoftwareNumber
+            pFirmwareVersion = FirmwareHeader.FirmwareVersion
+            pPortVersion = FirmwareHeader.PortVersion
+            pRFVersion = FirmwareHeader.RFVersion
+            pDexBootVersion = FirmwareHeader.DexBootVersion
+            pBLEVersion = FirmwareHeader.BLEVersion
+            pBLESoftDeviceVersion = FirmwareHeader.BLESoftDeviceVersion
+            Return True
+        Else
+            pSchemaVersion = ""
+            pApiVersion = ""
+            pTestApiVersion = ""
+            pProductId = ""
+            pProductName = ""
+            pSoftwareNumber = ""
+            pFirmwareVersion = ""
+            pPortVersion = ""
+            pRFVersion = ""
+            pDexBootVersion = ""
+            pBLEVersion = ""
+            pBLESoftDeviceVersion = ""
         End If
 
         Return False
@@ -403,20 +517,6 @@ Public Class Receiver
     End Function
 
     ''' <summary>
-    ''' Returns information about the device firmware.
-    ''' </summary>
-    ''' <returns>A String with information about the device firmware or an empty String if an error occurrs</returns>
-    Public Async Function GetFirmwareHeader() As Task(Of String)
-        Dim RequestPacket As New Packet(Packet.Commands.ReadFirmwareHeader)
-        If Await pDexcomInterface.SendPacketBytes(RequestPacket.GetPacketBytes()) Then
-            Dim ResponsePacket As New Packet(Await pDexcomInterface.ReceivePacketBytes())
-            Return UTF8.GetString(ResponsePacket.PayloadData())
-        End If
-
-        Return ""
-    End Function
-
-    ''' <summary>
     ''' Returns device firmware settings.
     ''' </summary>
     ''' <returns>A String showing device firmware settings</returns>
@@ -481,6 +581,8 @@ Public Class Receiver
                                 NewRecord = New MeterDatabaseRecord(RawPage, j * MeterDatabaseRecord.MeterDataRecordLength)
                             Case DatabasePage.RecordType.InsertionData
                                 NewRecord = New InsertionDatabaseRecord(RawPage, j * InsertionDatabaseRecord.InsertionDatabaseRecordLength)
+                            Case DatabasePage.RecordType.UserEventData
+                                NewRecord = New UserEventDatabaseRecord(RawPage, j * UserEventDatabaseRecord.UserEventDatabaseRecordLength)
                             Case Else
                                 ' This exception will need to be handled by the calling function
                                 Throw New NotImplementedException
@@ -660,6 +762,229 @@ Public Class Receiver
             End If
 
             Return pHardwareID
+        End Get
+    End Property
+
+    ''' <summary>
+    ''' The version of the database schema the device uses.
+    ''' </summary>
+    ''' <returns>A string representing the SchemaVersion property from the device</returns>
+    Public ReadOnly Property SchemaVersion As String
+        Get
+            ' If the attribute hasn't been retrieved then attempt to retrieve it.
+            If pSchemaVersion = "" Then
+                Dim GetFirmwareHeader As Task = Task.Run(AddressOf GetFirmwareData)
+                Call GetFirmwareHeader.Wait()
+            End If
+
+            Return pSchemaVersion
+        End Get
+    End Property
+
+    ''' <summary>
+    ''' The version of the API exposed by the device.
+    ''' </summary>
+    ''' <returns>A string representing the ApiVersion property from the device</returns>
+    Public ReadOnly Property ApiVersion As String
+        Get
+            ' If the attribute hasn't been retrieved then attempt to retrieve it.
+            If pApiVersion = "" Then
+                Dim GetFirmwareHeader As Task = Task.Run(AddressOf GetFirmwareData)
+                Call GetFirmwareHeader.Wait()
+            End If
+
+            Return pApiVersion
+        End Get
+    End Property
+
+    ''' <summary>
+    ''' The API version of the test API.
+    ''' </summary>
+    ''' <returns>A string representing the TestApiVersion property from the device</returns>
+    Public ReadOnly Property TestApiVersion As String
+        Get
+            ' If the attribute hasn't been retrieved then attempt to retrieve it.
+            If pTestApiVersion = "" Then
+                Dim GetFirmwareHeader As Task = Task.Run(AddressOf GetFirmwareData)
+                Call GetFirmwareHeader.Wait()
+            End If
+
+            Return pTestApiVersion
+        End Get
+    End Property
+
+    ''' <summary>
+    ''' A short string identifying the receiver product type
+    ''' </summary>
+    ''' <returns></returns>
+    Public ReadOnly Property ProductId As String
+        Get
+            ' If the attribute hasn't been retrieved then attempt to retrieve it.
+            If pProductId = "" Then
+                Dim GetFirmwareHeader As Task = Task.Run(AddressOf GetFirmwareData)
+                Call GetFirmwareHeader.Wait()
+            End If
+
+            Return pProductId
+        End Get
+    End Property
+
+    ''' <summary>
+    ''' A user-friendly string describing the receiver product type
+    ''' </summary>
+    ''' <returns></returns>
+    Public ReadOnly Property ProductName As String
+        Get
+            ' If the attribute hasn't been retrieved then attempt to retrieve it.
+            If pProductName = "" Then
+                Dim GetFirmwareHeader As Task = Task.Run(AddressOf GetFirmwareData)
+                Call GetFirmwareHeader.Wait()
+            End If
+
+            Return pProductName
+        End Get
+    End Property
+
+    ''' <summary>
+    ''' The number of the software published on the device.
+    ''' </summary>
+    ''' <returns>Returns a product code identifying the loaded software</returns>
+    Public ReadOnly Property SoftwareNumber As String
+        Get
+            ' If the attribute hasn't been retrieved then attempt to retrieve it.
+            If pSoftwareNumber = "" Then
+                Dim GetFirmwareHeader As Task = Task.Run(AddressOf GetFirmwareData)
+                Call GetFirmwareHeader.Wait()
+            End If
+
+            Return pSoftwareNumber
+        End Get
+    End Property
+
+    ''' <summary>
+    ''' The overall version of Firmware loaded onto the device.
+    ''' </summary>
+    ''' <returns>A version string representing the overall firmware version</returns>
+    Public ReadOnly Property FirmwareVersion As String
+        Get
+            ' If the attribute hasn't been retrieved then attempt to retrieve it.
+            If pFirmwareVersion = "" Then
+                Dim GetFirmwareHeader As Task = Task.Run(AddressOf GetFirmwareData)
+                Call GetFirmwareHeader.Wait()
+            End If
+
+            Return pFirmwareVersion
+        End Get
+    End Property
+
+    ''' <summary>
+    ''' The version of the Port software in this firmware version.
+    ''' </summary>
+    ''' <returns>A version string representing the port version</returns>
+    Public ReadOnly Property PortVersion As String
+        Get
+            ' If the attribute hasn't been retrieved then attempt to retrieve it.
+            If pPortVersion = "" Then
+                Dim GetFirmwareHeader As Task = Task.Run(AddressOf GetFirmwareData)
+                Call GetFirmwareHeader.Wait()
+            End If
+
+            Return pPortVersion
+        End Get
+    End Property
+
+    ''' <summary>
+    ''' The version of the RF software in this firmware version.
+    ''' </summary>
+    ''' <returns>A version string representing the RF version</returns>
+    Public ReadOnly Property RFVersion As String
+        Get
+            ' If the attribute hasn't been retrieved then attempt to retrieve it.
+            If pRFVersion = "" Then
+                Dim GetFirmwareHeader As Task = Task.Run(AddressOf GetFirmwareData)
+                Call GetFirmwareHeader.Wait()
+            End If
+
+            Return pRFVersion
+        End Get
+    End Property
+
+    ''' <summary>
+    ''' The revision number of the DexBoot software in this firmware version.
+    ''' </summary>
+    ''' <returns>An String containing an integer representing the revision of DexBoot</returns>
+    Public ReadOnly Property DexBootVersion As String
+        Get
+            ' If the attribute hasn't been retrieved then attempt to retrieve it.
+            If pDexBootVersion = "" Then
+                Dim GetFirmwareHeader As Task = Task.Run(AddressOf GetFirmwareData)
+                Call GetFirmwareHeader.Wait()
+            End If
+
+            Return pDexBootVersion
+        End Get
+    End Property
+
+    ''' <summary>
+    ''' The version of the BLE software in this firmware version.
+    ''' </summary>
+    ''' <returns>A version string representing the BLE version</returns>
+    Public ReadOnly Property BLEVersion As String
+        Get
+            ' If the attribute hasn't been retrieved then attempt to retrieve it.
+            If pBLEVersion = "" Then
+                Dim GetFirmwareHeader As Task = Task.Run(AddressOf GetFirmwareData)
+                Call GetFirmwareHeader.Wait()
+            End If
+
+            Return pBLEVersion
+        End Get
+    End Property
+
+    ''' <summary>
+    ''' The version of the BLE Soft Device software in this firmware version.
+    ''' </summary>
+    ''' <returns>A version string representing the BLE Soft Device version</returns>
+    Public ReadOnly Property BLESoftDeviceVersion As String
+        Get
+            ' If the attribute hasn't been retrieved then attempt to retrieve it.
+            If pBLESoftDeviceVersion = "" Then
+                Dim GetFirmwareHeader As Task = Task.Run(AddressOf GetFirmwareData)
+                Call GetFirmwareHeader.Wait()
+            End If
+
+            Return pBLESoftDeviceVersion
+        End Get
+    End Property
+
+    ''' <summary>
+    ''' Returns the type of receiver connected, either G4 or G5, or Unknown otherwise.
+    ''' </summary>
+    ''' <returns>A DeviceTypes value representing the type of device, or Unknown if not recognized</returns>
+    Public ReadOnly Property DeviceType As DeviceTypes
+        Get
+            If pDeviceType = DeviceTypes.Unknown Then
+                If pProductId = "" Then
+                    Dim GetFirmwareHeader As Task = Task.Run(AddressOf GetFirmwareData)
+                    Call GetFirmwareHeader.Wait()
+                End If
+
+                ' There is only one G5 device (so far) but a few G4 devices. If the
+                ' device isn't a G5 device but has G4 in the ProductId then treat it
+                ' as a G4 device. Otherwise it is unknown.
+                Select Case pProductId
+                    Case "G5MobileReceiver"
+                        Return pDeviceType = DeviceTypes.G5Receiver
+                    Case Else
+                        If pProductId.ToUpper.Contains("G4") Then
+                            pDeviceType = DeviceTypes.G4Receiver
+                        Else
+                            pDeviceType = DeviceTypes.Unknown
+                        End If
+                End Select
+            End If
+
+            Return pDeviceType
         End Get
     End Property
 End Class

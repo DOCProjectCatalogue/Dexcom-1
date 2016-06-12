@@ -2,7 +2,7 @@
 
 ''' <summary>
 ''' Author: Jay Lagorio
-''' Date: May 15, 2016
+''' Date: June 12, 2016
 ''' Summary: Describes a raw database page retrieved from the device, parses headers and separates attached payloads.
 ''' </summary>
 
@@ -149,7 +149,7 @@ Public Class DatabasePage
     Public Function GetPageXMLContent() As String
         ' Manufacturing and Firmware XML text starts after 8 bytes. Find the NULL and
         ' cut the string to return to the caller.
-        Dim NullPosition As Integer = Array.IndexOf(pPayload, CByte(0))
+        Dim NullPosition As Integer = Array.IndexOf(pPayload, CByte(0), XMLDataStartOffset)
         Return UTF8.GetString(pPayload, XMLDataStartOffset, NullPosition - XMLDataStartOffset)
     End Function
 End Class
